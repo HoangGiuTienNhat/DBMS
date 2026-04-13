@@ -138,32 +138,37 @@ export class FirestoreReviewsService {
         query = query.where('isVerified', '==', isVerified);
       }
 
-      // Get total count
-      const countSnapshot = await query.count().get();
-      const total = countSnapshot.data().count;
+      // Get all matching documents
+      const snapshot = await query.get();
 
-      // Get paginated results
-      const snapshot = await query
-        .orderBy('createdAt', 'desc')
-        .offset((page - 1) * limit)
-        .limit(limit)
-        .get();
+      // Format and sort in memory
+      const allReviews = snapshot.docs
+        .map((doc) => ({
+          id: doc.id,
+          ...this.formatReviewData(doc.data()),
+        }))
+        .sort((a, b) => {
+          const aTime = a.createdAt.getTime ? a.createdAt.getTime() : new Date(a.createdAt).getTime();
+          const bTime = b.createdAt.getTime ? b.createdAt.getTime() : new Date(b.createdAt).getTime();
+          return bTime - aTime;
+        }) as ReviewResponseDto[];
 
-      const reviews = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...this.formatReviewData(doc.data()),
-      })) as ReviewResponseDto[];
-
+      // Calculate pagination
+      const total = allReviews.length;
       const totalPages = Math.ceil(total / limit);
+      const startIndex = (page - 1) * limit;
+      const endIndex = startIndex + limit;
+      const paginatedReviews = allReviews.slice(startIndex, endIndex);
 
       return {
-        reviews,
+        reviews: paginatedReviews,
         total,
         page,
         limit,
         totalPages,
       };
     } catch (error) {
+      console.error('Firestore findAll Error:', error);
       throw new Error(`Failed to fetch reviews: ${error.message}`);
     }
   }
