@@ -46,58 +46,26 @@ export class ReviewsService {
       throw new NotFoundException('Product not found');
     }
 
-    let review: ReviewResponseDto;
-    
+    // Create review ONLY in Firestore
     try {
-      // Try to create review in Firestore first
-      review = await this.firestoreReviewsService.createReview(
+      console.log('📝 Creating review in Firestore...');
+      const review = await this.firestoreReviewsService.createReview(
         userId,
         productId,
         rating,
         comment,
       );
-      console.log('✅ Review saved to Firestore:', review.id);
+      console.log('✅ Review successfully saved to Firestore:', review.id);
+
+      // Update product average rating in PostgreSQL (metadata only)
+      await this.updateProductRating(productId);
+
+      // Enrich review with user and product data
+      return this.enrichReviewResponse(review, productId, userId);
     } catch (error) {
-      console.error('⚠️ Firestore save failed, falling back to PostgreSQL:', error.message);
-      
-      // Fallback: Save to PostgreSQL
-      try {
-        const pgReview = this.reviewRepository.create({
-          userId,
-          productId,
-          rating,
-          comment,
-          isVerified: false,
-          isActive: true,
-        });
-        const savedReview = await this.reviewRepository.save(pgReview);
-        
-        // Convert PostgreSQL review to response format
-        review = {
-          id: savedReview.REVIEW_ID,
-          userId: savedReview.userId,
-          productId: savedReview.productId,
-          rating: savedReview.rating,
-          comment: savedReview.comment,
-          isVerified: savedReview.isVerified,
-          isActive: savedReview.isActive,
-          createdAt: savedReview.createdAt,
-          updatedAt: savedReview.updatedAt,
-          user: { id: '', name: '', email: '' },
-          product: { id: '', name: '', title: '' },
-        };
-        console.log('✅ Review saved to PostgreSQL (Firestore backup failed):', review.id);
-      } catch (pgError) {
-        console.error('❌ Both Firestore and PostgreSQL failed:', pgError.message);
-        throw new Error(`Failed to save review: ${pgError.message}`);
-      }
+      console.error('❌ Firestore Error - Review NOT saved:', error.message);
+      throw new Error(`Failed to save review to Firestore: ${error.message}`);
     }
-
-    // Update product average rating in PostgreSQL
-    await this.updateProductRating(productId);
-
-    // Enrich review with user and product data
-    return this.enrichReviewResponse(review, productId, userId);
   }
 
   async findAll(queryDto: ReviewQueryDto): Promise<{
